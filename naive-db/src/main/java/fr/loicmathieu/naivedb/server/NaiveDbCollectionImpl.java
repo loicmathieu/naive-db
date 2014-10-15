@@ -1,82 +1,74 @@
 package fr.loicmathieu.naivedb.server;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.FileReader;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import fr.loicmathieu.naivedb.api.NaiveDbCollection;
 import fr.loicmathieu.naivedb.api.NaiveDbIndex;
+import fr.loicmathieu.naivedb.server.persist.AsynchronousCollectionPersister;
+import fr.loicmathieu.naivedb.server.persist.CollectionPersister;
+import fr.loicmathieu.naivedb.server.persist.SychronousCollectionPersister;
 
 public class NaiveDbCollectionImpl implements NaiveDbCollection {
+	private static final Logger LOG = LogManager.getLogger(NaiveDbCollectionImpl.class);
 
-	private static final int BUFFER_LENGTH = 1024;
+	private static final byte SAVED_FLAG = 0;
+	private static final byte UPDATED_FLAG = 1;
+	private static final byte DELETED_FLAG = 2;
 
-	private String name;
-	private boolean persist;
-	private FileOutputStream persistantStorage;
-	private FileChannel storageChannel;
-	private ByteBuffer byteBuffer = ByteBuffer.allocate(BUFFER_LENGTH);
+	private final String name;
+	private final boolean persist;
 
-	private Map<String, String> documents = new HashMap<>();
+	private Map<String, String> documents = new HashMap<>(100000);
 	private Map<String, NaiveDbIndexImpl> indexes = new HashMap<>();
 	private AtomicLong idGenerator = new AtomicLong();
 
+	private CollectionPersister persister;
+
+	private boolean closeInProgress = false;
+
 
 	public NaiveDbCollectionImpl(String name) {
-		this.name = name;
-		this.persist = false;
+		this(name, false, false);
+	}
+
+	public NaiveDbCollectionImpl(String name, boolean persist) {
+		this(name, persist, false);
 	}
 
 
-	public NaiveDbCollectionImpl(String name, boolean persist) {
+	public NaiveDbCollectionImpl(String name, boolean persist, boolean enableAsynch) {
+		LOG.info("[" + name + "] - Initializing the collection with persistence " + (persist ? "enabled" : "disabled"));
 		this.name = name;
 		this.persist = persist;
 
 		if (persist) {
-			try {
-				// open a file descriptor to persist the document
-				File storageFile = new File("D:/Temp/naivedb.dat");
-				if (!storageFile.exists()) {
-					storageFile.createNewFile();
-				}
-				else {
-					loadCollectionFromDisk(storageFile);
-				}
-				persistantStorage = new FileOutputStream(storageFile);
-				storageChannel = persistantStorage.getChannel();
+			if(enableAsynch){
+				persister = new AsynchronousCollectionPersister(name);
 			}
-			catch (IOException e) {
-				throw new RuntimeException(e);
+			else {
+				persister = new SychronousCollectionPersister(name);
 			}
+			persister.init();
+
+			LOG.info("[" + name + "] - Loading previous data from persistent storage");
+			long start = System.currentTimeMillis();
+			List<String> rawDocument = persister.loadRawDocuments();
+			addPersistedDocuments(rawDocument);
+			LOG.info("[" + name + "] - Loading previous data from persistent storage done in " + (System.currentTimeMillis() - start) + " ms");
 		}
-	}
-
-
-	private void loadCollectionFromDisk(File storageFile) throws IOException {
-		try(BufferedReader  reader = new BufferedReader(new FileReader(storageFile))){
-			String line = reader.readLine();
-			while(line != null){
-				String[] item = line.split("\\|");
-				//TODO if already exist, value will be overridden, maybe compaction needs to occurs
-				// save the item
-				internalSave(item[0], item[1]);
-
-				line = reader.readLine();
-			}
-		}
+		LOG.info("[" + name + "] - Collection successfully initialized");
 	}
 
 
 	public String save(String document) {
+		//TODO add synchronization
 		// generate ID
 		String id = String.valueOf(idGenerator.getAndIncrement());
 
@@ -85,12 +77,65 @@ public class NaiveDbCollectionImpl implements NaiveDbCollection {
 
 		// presist if needed
 		if (persist) {
-			persistDocumentOnDiskViaChannel(id, document);
+			persister.persistDocument(id, document, SAVED_FLAG);
 		}
 
 		// return generated id
 		return id;
 	}
+
+
+	public String save(String id, String document) {
+		//TODO add synchronization
+		boolean update = documents.containsKey(id);
+
+		// save the item
+		internalSave(id, document);
+
+		// presist if needed
+		if (persist) {
+			byte flag = update ? UPDATED_FLAG : SAVED_FLAG;
+			persister.persistDocument(id, document, flag);
+		}
+
+		// return generated id
+		return id;
+	}
+
+	public void remove(String id){
+		//TODO add synchronization
+		String document = documents.remove(id);
+
+		// de-index it
+		if(document != null){
+			for (NaiveDbIndexImpl index : indexes.values()) {
+				index.deIndexDocument(id, document);
+			}
+		}
+
+		// presist if needed the removal state
+		if (persist) {
+			persister.persistDocument(id, document, DELETED_FLAG);
+		}
+
+	}
+
+
+	private void addPersistedDocuments(List<String> rawDocuments){
+		LOG.info("[" + name + "] - Adding persisted documents to the collection");
+		for(String line : rawDocuments){
+			String[] item = line.split("\\|");
+			if(item[2].equals(String.valueOf(DELETED_FLAG))){
+				//remove the item, event needs to occurs in order
+				remove(item[0]);
+			}
+			else {
+				// save the item or update it!
+				internalSave(item[0], item[1]);
+			}
+		}
+	}
+
 
 	private void internalSave(String id, String document) {
 		// save the item
@@ -99,26 +144,6 @@ public class NaiveDbCollectionImpl implements NaiveDbCollection {
 		// index it
 		for (NaiveDbIndexImpl index : indexes.values()) {
 			index.indexDocument(id, document);
-		}
-	}
-
-
-	private void persistDocumentOnDiskViaChannel(String id, String document) {
-		//TODO synchronize this or the data will be mixed in!
-		//TODO byteBuffer is 1Ko, make multiple write to data more than 1Ko
-		try {
-			byteBuffer.put(id.getBytes());
-			byteBuffer.put("|".getBytes());
-			byteBuffer.put(document.getBytes());
-			byteBuffer.put("\n".getBytes());
-			byteBuffer.flip();
-			while(byteBuffer.hasRemaining()) {
-				storageChannel.write(byteBuffer);
-			}
-			byteBuffer.clear();
-		}
-		catch (IOException e) {
-			throw new RuntimeException(e);
 		}
 	}
 
@@ -153,6 +178,10 @@ public class NaiveDbCollectionImpl implements NaiveDbCollection {
 		return name;
 	}
 
+	public int getSize() {
+		return documents.size();
+	}
+
 
 	public NaiveDbIndex ensureIndex(String attribute) {
 		// synchronize this properly
@@ -162,7 +191,24 @@ public class NaiveDbCollectionImpl implements NaiveDbCollection {
 			indexes.put(attribute, (NaiveDbIndexImpl) index);
 		}
 
+		//TODO, if previous data exist, need to index them
+
 		return index;
+	}
+
+
+	public void close() {
+		if(!closeInProgress){
+			closeInProgress = true;
+
+			LOG.info("[" + name + "] - Closing the collection");
+			if(persist){
+				//close the persistence if any
+				persister.shutdown();
+			}
+			LOG.info("[" + name + "] - Collection closed");
+		}
+
 	}
 
 }
