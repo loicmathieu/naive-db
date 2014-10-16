@@ -20,10 +20,10 @@ public class NaiveDbImplLoadTest {
 	 * Read all elements in : 1194
 	 * 		=> 1000000.0 tx/s
 	 *
-	 * RUN 2 : persistance, update/remove, index
-	 * Save all elements in : 4410
-	 * 	=> 250000.0 tx/s
-	 * Read all elements in : 291
+	 * RUN 2 : Trove!
+	 * Save all elements in : 2744
+	 * 	=> 500000.0 tx/s
+	 * Read all elements in : 702
 	 * 	=> Infinity tx/s
 	 */
 	@Test
@@ -66,6 +66,14 @@ public class NaiveDbImplLoadTest {
 	 *	=> Infinity tx/s
 	 * 	Read all elements from index in : 1495
 	 * 	=> 1000000.0 tx/s
+	 *
+	 * RUN 2 : Trove
+	 * Save all elements in : 6431
+	 * 	=> 166666.66666666666 tx/s
+	 * Read all elements in : 135
+	 * 	=> Infinity tx/s
+	 * Read all elements from index in : 409
+	 *	=> Infinity tx/s
 	 */
 	@Test
 	public void testWithIndex() {

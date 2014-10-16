@@ -1,19 +1,14 @@
 package fr.loicmathieu.naivedb.server;
 
-import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import fr.loicmathieu.naivedb.api.NaiveDbIndex;
+import gnu.trove.map.hash.THashMap;
 
 public class NaiveDbIndexImpl implements NaiveDbIndex {
-	private static final Logger LOG = LogManager.getLogger(NaiveDbIndexImpl.class);
-
-	private Map<String, List<String>> indexMap = new HashMap<>(100000);
+	private Map<String, List<String>> indexMap = new THashMap<>(100000);
 	private final String attribute;
 
 

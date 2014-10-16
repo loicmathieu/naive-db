@@ -14,6 +14,7 @@ import fr.loicmathieu.naivedb.api.NaiveDbIndex;
 import fr.loicmathieu.naivedb.server.persist.AsynchronousCollectionPersister;
 import fr.loicmathieu.naivedb.server.persist.CollectionPersister;
 import fr.loicmathieu.naivedb.server.persist.SychronousCollectionPersister;
+import gnu.trove.map.hash.THashMap;
 
 public class NaiveDbCollectionImpl implements NaiveDbCollection {
 	private static final Logger LOG = LogManager.getLogger(NaiveDbCollectionImpl.class);
@@ -25,7 +26,7 @@ public class NaiveDbCollectionImpl implements NaiveDbCollection {
 	private final String name;
 	private final boolean persist;
 
-	private Map<String, String> documents = new HashMap<>(100000);
+	private Map<String, String> documents = new THashMap<>(100000);
 	private Map<String, NaiveDbIndexImpl> indexes = new HashMap<>();
 	private AtomicLong idGenerator = new AtomicLong();
 
