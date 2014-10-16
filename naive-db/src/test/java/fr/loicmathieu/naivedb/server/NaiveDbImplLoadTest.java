@@ -74,6 +74,13 @@ public class NaiveDbImplLoadTest {
 	 * 	=> Infinity tx/s
 	 * Read all elements from index in : 409
 	 *	=> Infinity tx/s
+	 *
+	 * RUN 3 : better indexing techincs
+	 * Save all elements in : 5522
+	 * 	=> 200000.0 tx/s
+	 * Read all elements in : 1834
+	 * 	=> 1000000.0 tx/s
+	 *	=> Infinity tx/s
 	 */
 	@Test
 	public void testWithIndex() {

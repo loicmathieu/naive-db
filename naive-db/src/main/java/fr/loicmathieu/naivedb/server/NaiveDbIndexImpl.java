@@ -62,27 +62,63 @@ public class NaiveDbIndexImpl implements NaiveDbIndex {
 
 
 	private String extractKey(String document) {
-		//TODO find a way to do this without any copying and creation of object!
-		//remove { and }
-		String partial = document.substring(1, document.length() - 1);
-		//split on ","
-		String [] items = partial.split(",");
+		//init index with first + 1 and last - 1 because of the {}!
+		int firstIdx = 1;
+		int cursorIdx = 1;
+		int lastIdx = document.length() - 1;
 
-		//iterate over attribute and find the match!
 		String key = null;
-		for (String item : items) {
-			//split on : to split attribute and value
-			String[] subItem = item.split(":");
-			String itemAttribute = subItem[0].trim();
-			itemAttribute = itemAttribute.substring(1, itemAttribute.length() - 1);
-			if(attribute.equals(itemAttribute)){
-				key = subItem[1].trim();
-				key = key.substring(1, key.length() - 1);
-				break;
+		boolean notFound = true;
+		while(notFound && cursorIdx < lastIdx){
+			cursorIdx++;
+			if(document.charAt(cursorIdx) == ','){//TODO needs to allow ',' in the document!
+				String item = document.substring(firstIdx, cursorIdx);
+				key = checkItem(item);
+				if(key != null){
+					notFound = false;
+				}
+				else {
+					//didn't found, move the startIdx
+					firstIdx = cursorIdx + 1;
+				}
 			}
+
 		}
 
 		return key;
+	}
+
+
+	private String checkItem(String item) {
+		//init index with first + 1 and last - 1 because of the {}!
+		int attributeStartIdx = 0;
+		while(item.charAt(attributeStartIdx) != '"'){//search for the '"' to avoid space
+			attributeStartIdx++;
+		}
+		attributeStartIdx++; //move away the '"'
+
+		int indexOf = item.indexOf(':');
+		int attributeLastIdx = indexOf;
+		while(item.charAt(attributeLastIdx) != '"'){//search for the '"' to avoid space
+			attributeLastIdx--;
+		}
+
+		String itemAttribute = item.substring(attributeStartIdx, attributeLastIdx);
+		if(attribute.equals(itemAttribute)){
+			int keyStartIdx = indexOf;
+			while(item.charAt(keyStartIdx) != '"'){
+				keyStartIdx++;
+			}
+			keyStartIdx++;//move away the '"'
+
+			int keyLastIdx = item.length() - 1;
+			while(item.charAt(keyLastIdx) != '"'){
+				keyLastIdx--;
+			}
+			return item.substring(keyStartIdx, keyLastIdx);
+		}
+
+		return null;
 	}
 
 }
